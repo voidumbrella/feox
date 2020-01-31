@@ -9,7 +9,6 @@ const MODE3: u16 = 128;
 pub struct Timer {
     pub counter: u8,
     pub modulo: u8,
-    interrupt_ready: bool,
     enabled: bool,
     frequency: u16,
     cycles: u16,
@@ -20,31 +19,27 @@ impl Timer {
         Self {
             counter: 0,
             enabled: false,
-            interrupt_ready: false,
             modulo: 0,
             frequency: MODE0,
             cycles: 0,
         }
     }
 
-    pub fn step(&mut self, interrupts: &mut InterruptQueue) {
+    pub fn step(&mut self, cycles: u16, interrupts: &mut InterruptQueue) {
         if !self.enabled {
             return;
         }
+        self.cycles += cycles;
 
-        self.cycles += 1;
-
-        if self.interrupt_ready {
-            self.interrupt_ready = false;
-            self.counter = self.modulo;
-            interrupts.request_interrupt(Interrupt::Timer);
-        }
-
-        if self.cycles >= self.frequency {
-            self.cycles = 0;
+        while self.cycles >= self.frequency {
+            self.cycles -= self.frequency;
             let (new_counter, overflowed) = self.counter.overflowing_add(1);
-            self.interrupt_ready = overflowed;
-            self.counter = new_counter;
+            if overflowed {
+                self.counter = self.modulo;
+                interrupts.request_interrupt(Interrupt::Timer);
+            } else {
+                self.counter = new_counter;
+            }
         }
     }
 

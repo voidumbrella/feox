@@ -3,7 +3,7 @@ mod decode;
 mod instructions;
 
 use registers::Registers;
-use crate::bus::Bus;
+use crate::emulator::Emulator;
 use crate::interrupts::Interrupt;
 
 pub struct Cpu {
@@ -14,19 +14,19 @@ pub struct Cpu {
 }
 
 pub trait ByteSrc {
-    fn read(&self, cpu: &mut Cpu, bus: &mut Bus) -> u8;
+    fn read(&self, cpu: &mut Cpu, emulator: &mut Emulator) -> u8;
 }
 
 pub trait ByteDest {
-    fn write(&self, cpu: &mut Cpu, bus: &mut Bus, value: u8);
+    fn write(&self, cpu: &mut Cpu, emulator: &mut Emulator, value: u8);
 }
 
 pub trait WordSrc {
-    fn read(&self, cpu: &mut Cpu, bus: &mut Bus) -> u16;
+    fn read(&self, cpu: &mut Cpu, emulator: &mut Emulator) -> u16;
 }
 
 pub trait WordDest {
-    fn write(&self, cpu: &mut Cpu, bus: &mut Bus, value: u16);
+    fn write(&self, cpu: &mut Cpu, emulator: &mut Emulator, value: u16);
 }
 
 impl Cpu {
@@ -39,12 +39,12 @@ impl Cpu {
         }
     }
 
-    fn handle_interrupt(&mut self, bus: &mut Bus) {
-        bus.step();
-        bus.step();
-        let interrupt = bus.interrupts().pop()
+    fn handle_interrupt(&mut self, emulator: &mut Emulator) {
+        emulator.step();
+        emulator.step();
+        let interrupt = emulator.interrupts.pop()
             .expect("Could not retrieve interrupt from queue");
-        self.push(bus, registers::Reg16::PC);
+        self.push(emulator, registers::Reg16::PC);
         match interrupt {
             Interrupt::VBlank => self.regs.pc = 0x40,
             Interrupt::Lcd => self.regs.pc = 0x48,
@@ -54,56 +54,56 @@ impl Cpu {
         self.interrupt_enabled = false;
     }
 
-    pub fn step(&mut self, bus: &mut Bus) {
+    pub fn step(&mut self, emulator: &mut Emulator) {
         if !self.halted {
             // println!("{:#04X}", self.opcode);
-            self.opcode = self.fetch(bus);
-            self.decode(bus);
+            self.opcode = self.fetch(emulator);
+            self.decode(emulator);
         } else {
-            bus.step();
+            emulator.step();
         }
 
-        if bus.interrupts().peek() {
+        if emulator.interrupts.peek() {
             self.halted = false;
             if self.interrupt_enabled {
-                self.handle_interrupt(bus);
+                self.handle_interrupt(emulator);
             }
         }
     }
 
     /// Fetch the byte pointed by the program counter and advance the program counter.
-    fn fetch(&mut self, bus: &mut Bus) -> u8 {
-        let val = self.read_byte(bus, self.regs.pc);
+    fn fetch(&mut self, emulator: &mut Emulator) -> u8 {
+        let val = self.read_byte(emulator, self.regs.pc);
         self.regs.pc = self.regs.pc.wrapping_add(1);
         val
     }
 
     /// Fetch the word pointed by the program counter and advance the program counter by 2.
-    fn fetch_word(&mut self, bus: &mut Bus) -> u16 {
-        let lo = self.fetch(bus);
-        let hi = self.fetch(bus);
+    fn fetch_word(&mut self, emulator: &mut Emulator) -> u16 {
+        let lo = self.fetch(emulator);
+        let hi = self.fetch(emulator);
         (hi as u16) << 8| lo as u16
     }
 
-    fn read_byte(&self, bus: &mut Bus, address: u16) -> u8 {
-        bus.read_cycle(address)
+    fn read_byte(&self, emulator: &mut Emulator, address: u16) -> u8 {
+        emulator.read_cycle(address)
     }
 
-    fn read_word(&self, bus: &mut Bus, address: u16) -> u16 {
-        let lo = self.read_byte(bus, address) as u16;
-        let hi = self.read_byte(bus, address.wrapping_add(1)) as u16;
+    fn read_word(&self, emulator: &mut Emulator, address: u16) -> u16 {
+        let lo = self.read_byte(emulator, address) as u16;
+        let hi = self.read_byte(emulator, address.wrapping_add(1)) as u16;
         hi << 8 | lo
     }
 
-    fn write_byte(&mut self, bus: &mut Bus, address: u16, value: u8) {
-        bus.write_cycle(address, value)
+    fn write_byte(&mut self, emulator: &mut Emulator, address: u16, value: u8) {
+        emulator.write_cycle(address, value)
     }
 
-    fn write_word(&mut self, bus: &mut Bus, address: u16, value: u16) {
+    fn write_word(&mut self, emulator: &mut Emulator, address: u16, value: u16) {
         let lo = (value & 0xFF) as u8;
         let hi = (value >> 8) as u8;
-        self.write_byte(bus, address.wrapping_add(1), hi);
-        self.write_byte(bus, address, lo);
+        self.write_byte(emulator, address.wrapping_add(1), hi);
+        self.write_byte(emulator, address, lo);
     }
 }
 

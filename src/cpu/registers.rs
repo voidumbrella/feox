@@ -1,5 +1,5 @@
 use crate::cpu::{Cpu, ByteSrc, ByteDest, WordSrc, WordDest};
-use crate::bus::Bus;
+use crate::emulator::Emulator;
 
 #[derive(Debug, Copy, Clone)]
 pub enum Reg8 {
@@ -12,7 +12,7 @@ pub enum Reg16 {
 }
 
 impl ByteSrc for Reg8 {
-    fn read(&self, cpu: &mut Cpu, _: &mut Bus) -> u8 {
+    fn read(&self, cpu: &mut Cpu, _: &mut Emulator) -> u8 {
         match self {
             Reg8::A => cpu.regs.a,
             Reg8::B => cpu.regs.b,
@@ -26,7 +26,7 @@ impl ByteSrc for Reg8 {
 }
 
 impl ByteDest for Reg8 {
-    fn write(&self, cpu: &mut Cpu, _: &mut Bus, value: u8) {
+    fn write(&self, cpu: &mut Cpu, _: &mut Emulator, value: u8) {
         match self {
             Reg8::A => cpu.regs.a = value,
             Reg8::B => cpu.regs.b = value,
@@ -40,14 +40,14 @@ impl ByteDest for Reg8 {
 }
 
 impl WordSrc for Reg16 {
-    fn read(&self, cpu: &mut Cpu, _: &mut Bus) -> u16 {
+    fn read(&self, cpu: &mut Cpu, _: &mut Emulator) -> u16 {
         cpu.regs.read_pair(*self)
     }
 }
 
 
 impl WordDest for Reg16 {
-    fn write(&self, cpu: &mut Cpu, _: &mut Bus, value: u16) {
+    fn write(&self, cpu: &mut Cpu, _: &mut Emulator, value: u16) {
         cpu.regs.write_pair(*self, value);
     }
 }

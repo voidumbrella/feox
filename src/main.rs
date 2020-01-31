@@ -1,25 +1,17 @@
-use feox::bus::Bus;
+use feox::emulator::Emulator;
 use feox::cpu::Cpu;
+use feox::gui::Gui;
+use feox::joypad::Button;
 
 use std::env;
 use std::fs::File;
 
-use sdl2;
-use sdl2::pixels::Color;
 use sdl2::keyboard::Keycode;
 use sdl2::event::Event;
 
-#[allow(dead_code)]
-const COLOR1: Color = Color::RGB(0x08, 0x18, 0x20);
-#[allow(dead_code)]
-const COLOR2: Color = Color::RGB(0x34, 0x68, 0x56);
-#[allow(dead_code)]
-const COLOR3: Color = Color::RGB(0x88, 0xC0, 0x70);
-#[allow(dead_code)]
-const COLOR4: Color = Color::RGB(0xE0, 0xF8, 0xD0);
 
 // TODO: clean this thing up
-fn main() {
+fn main() -> Result<(), String> {
     let args: Vec<String> = env::args().collect();
     if args.len() < 3 {
         eprintln!("usage: feox [bootrom] [rom]");
@@ -30,51 +22,56 @@ fn main() {
     let mut rom = File::open(&args[2])
         .expect(&format!("expected to find '{}'", args[2]));
 
-    let sdl_context = sdl2::init().unwrap();
-    let video_subsystem = sdl_context.video().unwrap();
-    let window = video_subsystem.window("feox", 160, 144)
-        .position_centered()
-        .build()
-        .unwrap();
-    let mut event_pump = sdl_context.event_pump().unwrap();
-
-    let mut canvas = window.into_canvas().build().unwrap();
-     
-    canvas.set_draw_color(COLOR1);
-    canvas.clear();
-    canvas.present();
-
-    let mut bus = Bus::new();
-    bus.load_bootrom(&mut bootrom).expect("failed to read bootrom");
-    bus.load_rom(&mut rom).expect("failed to read rom");
+    let mut emulator = Emulator::new();
+    emulator.load_bootrom(&mut bootrom).expect("failed to read bootrom");
+    emulator.load_rom(&mut rom).expect("failed to read rom");
 
     let mut cpu = Cpu::new();
 
-    // const CYCLES_PER_FRAME: usize = 69905;
-    let mut debugging: bool = false;
+    let mut gui = Gui::new(120)?;
+    let mut event_pump = gui.context.event_pump()
+        .map_err(|e| e.to_string())?;
     'running: loop {
-        for event in event_pump.poll_iter() {
-            match event {
-                Event::Quit {..} |
-                Event::KeyDown { keycode: Some(Keycode::Escape), .. } => {
-                    break 'running
-                },
-                Event::KeyDown { keycode: Some(Keycode::D), .. } => {
-                    debugging = !debugging;
-                },
-                Event::KeyDown { keycode: Some(Keycode::Space), .. } => {
-                    if debugging {
-                        println!("{:?}", cpu);
-                        cpu.step(&mut bus);
+        let mut cycles = 0;
+        while cycles < 17556 {
+            for event in event_pump.poll_iter() {
+                match event {
+                    Event::Quit {..} |
+                    Event::KeyDown { keycode: Some(Keycode::Escape), .. } => break 'running,
+                    Event::KeyDown { keycode: Some(key), .. } => {
+                        if let Some(button) = map_keycode_to_joypad(key) {
+                            emulator.joypad_press(button);
+                        }
                     }
-                },
-                _ => {}
+                    Event::KeyUp { keycode: Some(key), .. } => {
+                        if let Some(button) = map_keycode_to_joypad(key) {
+                            emulator.joypad_clear(button);
+                        }
+                    }
+                    _ => (),
+                }
             }
+
+            cpu.step(&mut emulator);
+            cycles += emulator.catch_up_cycles();
         }
 
-        if !debugging {
-            cpu.step(&mut bus);
-            bus.catch_up_cycles();
-        }
+        gui.update_screen(&emulator.ppu.framebuffer())?;
+        gui.delay();
+    }
+    Ok(())
+}
+ 
+fn map_keycode_to_joypad(keycode: Keycode) -> Option<Button> {
+    match keycode {
+        Keycode::Up => Some(Button::Up),
+        Keycode::Down => Some(Button::Down),
+        Keycode::Left => Some(Button::Left),
+        Keycode::Right => Some(Button::Right),
+        Keycode::A => Some(Button::A),
+        Keycode::B => Some(Button::B),
+        Keycode::Space => Some(Button::Select),
+        Keycode::Return => Some(Button::Start),
+        _ => None,
     }
 }

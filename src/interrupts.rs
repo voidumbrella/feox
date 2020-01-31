@@ -38,7 +38,7 @@ impl InterruptQueue {
         self.vblank_enabled && self.vblank ||
         self.lcd_enabled && self.lcd ||
         self.timer_enabled && self.timer ||
-        self.joypad_enabled && self.joypad 
+        self.joypad_enabled && self.joypad
     }
 
     pub fn pop(&mut self) -> Option<Interrupt> {
