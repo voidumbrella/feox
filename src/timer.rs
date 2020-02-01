@@ -1,34 +1,45 @@
 use crate::interrupts::{Interrupt, InterruptQueue};
 
-const MODE0: u16 = 256;
-const MODE1: u16 = 4;
-const MODE2: u16 = 16;
-const MODE3: u16 = 128;
+const MODE0: u32 = 256;
+const MODE1: u32 = 4;
+const MODE2: u32 = 16;
+const MODE3: u32 = 128;
 
 #[derive(Debug)]
 pub struct Timer {
     pub counter: u8,
     pub modulo: u8,
+    pub divider: u8,
     enabled: bool,
-    frequency: u16,
-    cycles: u16,
+    frequency: u32,
+    cycles: u32,
+    div_cycles: u32,
 }
 
 impl Timer {
     pub fn new() -> Self {
         Self {
             counter: 0,
-            enabled: false,
             modulo: 0,
+            enabled: false,
+            divider: 0,
             frequency: MODE0,
             cycles: 0,
+            div_cycles: 0,
         }
     }
 
-    pub fn step(&mut self, cycles: u16, interrupts: &mut InterruptQueue) {
-        if !self.enabled {
-            return;
+    pub fn step(&mut self, cycles: u32, interrupts: &mut InterruptQueue) {
+        self.div_cycles += cycles;
+
+        // TODO: this isn't really how the divider register works
+        const DIV_FREQUENCY: u32 = 0x64;
+        while self.div_cycles >= DIV_FREQUENCY {
+            self.div_cycles -= DIV_FREQUENCY;
+            self.divider = self.divider.wrapping_add(1);
         }
+
+        if !self.enabled { return; }
         self.cycles += cycles;
 
         while self.cycles >= self.frequency {

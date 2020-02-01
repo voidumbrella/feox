@@ -9,8 +9,6 @@ use std::fs::File;
 use sdl2::keyboard::Keycode;
 use sdl2::event::Event;
 
-
-// TODO: clean this thing up
 fn main() -> Result<(), String> {
     let args: Vec<String> = env::args().collect();
     if args.len() < 3 {
@@ -28,16 +26,17 @@ fn main() -> Result<(), String> {
 
     let mut cpu = Cpu::new();
 
-    let mut gui = Gui::new(120)?;
+    let mut gui = Gui::new(160)?;
     let mut event_pump = gui.context.event_pump()
         .map_err(|e| e.to_string())?;
+
+    let mut debug = false;
     'running: loop {
         let mut cycles = 0;
-        while cycles < 17556 {
-            for event in event_pump.poll_iter() {
-                match event {
-                    Event::Quit {..} |
+        while cycles < 17476 {
+            for event in event_pump.poll_iter() { match event { Event::Quit {..} |
                     Event::KeyDown { keycode: Some(Keycode::Escape), .. } => break 'running,
+                    Event::KeyDown { keycode: Some(Keycode::Q), .. } => debug = !debug,
                     Event::KeyDown { keycode: Some(key), .. } => {
                         if let Some(button) = map_keycode_to_joypad(key) {
                             emulator.joypad_press(button);
@@ -51,6 +50,8 @@ fn main() -> Result<(), String> {
                     _ => (),
                 }
             }
+
+            if debug { println!("{:?}", cpu) };
 
             cpu.step(&mut emulator);
             cycles += emulator.catch_up_cycles();

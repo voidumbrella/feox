@@ -1,81 +1,10 @@
+use crate::emulator::Emulator;
 use crate::ppu::Ppu;
-use crate::interrupts::InterruptQueue;
-use crate::joypad::{Joypad, Button};
-use crate::timer::Timer;
 
 const UNDEFINED_BYTE: u8 = 0xFF;
 
-pub struct Emulator {
-    cycles: u16,
-    timer: Timer,
-    pub ppu: Ppu,
-    pub interrupts: InterruptQueue,
-    pub joypad: Joypad,
-    booted: bool,
-    boot_rom: [u8; 0x100],
-    rom: [u8; 0x7FFF - 0x0000 + 1],
-    cram: [u8; 0xBFFF - 0xA000 + 1],
-    wram: [u8; 0xDFFF - 0xC000 + 1],
-    hram: [u8; 0xFFFF - 0xFF80 + 1],
-}
-
-impl Default for Emulator {
-    fn default() -> Self {
-        Self::new()
-    }
-}
-
 impl Emulator {
-    pub fn new() -> Emulator {
-        Emulator {
-            cycles: 0,
-            ppu: Ppu::new(),
-            joypad: Joypad::new(),
-            timer: Timer::new(),
-            booted: false,
-            interrupts: InterruptQueue::new(),
-            boot_rom: [0; 0x100],
-            rom: [0; 0x8000],
-            cram: [0; 0x2000],
-            wram: [0; 0x2000],
-            hram: [0; 0x80],
-        }
-    }
-
-    pub fn catch_up_cycles(&mut self) -> u16 {
-        let cycles = self.cycles;
-        self.ppu.step(cycles, &mut self.interrupts);
-        self.timer.step(cycles, &mut self.interrupts);
-        self.cycles = 0;
-        cycles
-    }
-
-    pub fn step(&mut self) {
-        self.cycles += 1;
-    }
-
-    pub fn load_bootrom<T: std::io::Read>(&mut self, src: &mut T) -> Result<usize, std::io::Error> {
-        src.read(&mut self.boot_rom)
-    }
-
-    pub fn load_rom<T: std::io::Read>(&mut self, src: &mut T) -> Result<usize, std::io::Error> {
-        src.read(&mut self.rom)
-    }
-
-    pub fn read_cycle(&mut self, address: u16) -> u8 {
-        self.step();
-        self.read_mapped(address)
-    }
-
-    pub fn joypad_press(&mut self, pressed: Button) {
-        self.joypad.press_button(&mut self.interrupts, pressed);
-    }
-
-    pub fn joypad_clear(&mut self, pressed: Button) {
-        self.joypad.clear_button(pressed);
-    }
-
-    fn read_mapped(&self, address: u16) -> u8 {
+    pub fn read_mapped(&self, address: u16) -> u8 {
         match address {
             0x0000 ..= 0x00FF => {
                 if self.booted {
@@ -95,7 +24,7 @@ impl Emulator {
             0xE000 ..= 0xFDFF => self.wram[(address - 0xE000) as usize],
 
             // Unused addresses
-            0xFEA0 ..= 0xFEFF => 0,
+            0xFEA0 ..= 0xFEFF => UNDEFINED_BYTE,
             0xFF00 ..= 0xFF7F => self.read_ioreg(address),
             0xFF80 ..= 0xFFFE => self.hram[(address - 0xFF80) as usize],
             0xFFFF => self.interrupts.flags_as_byte(),
@@ -107,7 +36,7 @@ impl Emulator {
         self.write_mapped(address, value);
     }
 
-    fn write_mapped(&mut self, address: u16, value: u8) {
+    pub fn write_mapped(&mut self, address: u16, value: u8) {
         match address {
             0x0000 ..= 0x7FFF => eprintln!("Writing {:#04X} to ROM {:#06X}. \
                             Either this is a bug, or this cart uses a memory mapper.", value, address),
@@ -127,9 +56,14 @@ impl Emulator {
         }
     }
 
-    fn read_ioreg(&self, address: u16) -> u8 {
+    pub fn read_ioreg(&self, address: u16) -> u8 {
         match address {
+            // Unused registers
+            0xFF03 | 0xFF08..=0xFF0E | 0xFF1F | 0xFF27..=0xFF2f | 0xFF4E | 0xFF57..=0xFF67 | 0xFF78..=0xFF7F
+                => UNDEFINED_BYTE,
+
             0xFF00 => self.joypad.as_byte(),
+            0xFF04 => self.timer.divider,
             0xFF05 => self.timer.counter,
             0xFF06 => self.timer.modulo,
 
@@ -139,7 +73,9 @@ impl Emulator {
             0xFF42 => self.ppu.scroll_y,
             0xFF43 => self.ppu.scroll_x,
             0xFF44 => self.ppu.current_line(),
-            0xFF47 => UNDEFINED_BYTE,
+            0xFF47 => UNDEFINED_BYTE, // TODO: Read palette data
+            0xFF48 => UNDEFINED_BYTE,
+            0xFF49 => UNDEFINED_BYTE,
 
             0xFF50 => if self.booted { 1 } else { 0 },
             _ => {
@@ -149,24 +85,38 @@ impl Emulator {
         }
     }
 
-    fn write_ioreg(&mut self, address: u16, value: u8) {
+    pub fn write_ioreg(&mut self, address: u16, value: u8) {
         match address {
-            0xFF00 => self.joypad.from_byte(value),
-            // // print any serial output to console for now to debug with Blargg's ROMs
-            // 0xFF01 => print!("{}", value as char),
-            // 0xFF02 => (), // serial stuff as well
+            // Unused registers
+            0xFF03 | 0xFF08..=0xFF0E | 0xFF1F | 0xFF27..=0xFF2f | 0xFF4E | 0xFF57..=0xFF67 | 0xFF78..=0xFF7F
+                => (),
 
+            0xFF00 => self.joypad.from_byte(value),
+
+            // Serial
+            0xFF01 => (),
+            0xFF02 => (),
+
+            0xFF04 => self.timer.divider = 0,
             0xFF05 => self.timer.counter = value,
             0xFF06 => self.timer.modulo = value,
             0xFF07 => self.timer.mode_from_byte(value),
 
             0xFF0F => self.interrupts.from_byte(value),
+
+            // Audio
+            0xFF10..=0xFF3F => (),
+
             0xFF40 => self.ppu.control_from_byte(value),
             0xFF41 => self.ppu.stat_from_byte(value),
             0xFF42 => self.ppu.scroll_y = value,
             0xFF43 => self.ppu.scroll_x = value,
             0xFF44 => self.ppu.reset_current_line(),
-            0xFF47 => self.ppu.palette_from_byte(value),
+            0xFF46 => self.init_dma_transfer(value),
+            0xFF47 => self.ppu.palette = Ppu::palette_from_byte(value),
+            0xFF48 => self.ppu.obj_palette0 = Ppu::palette_from_byte(value),
+            0xFF49 => self.ppu.obj_palette1 = Ppu::palette_from_byte(value),
+
             0xFF50 => self.booted = true,
             0xFFFF => self.interrupts.flags_from_byte(value),
             _ => eprintln!("Writing {:#04X} to unknown IO register: {:#06X}", value, address),
